@@ -40,6 +40,9 @@ struct Impl {
     HBRUSH khaki = nullptr;
     HBRUSH border = nullptr;
     Gdiplus::Bitmap* icon_bmp = nullptr;
+    IStream* icon_stream = nullptr;  // GDI+ decodes lazily; must outlive icon_bmp
+    HICON h_icon_big = nullptr;
+    HICON h_icon_small = nullptr;
     Gdiplus::GdiplusStartupInput gdi_start;
     ULONG_PTR gdi_token = 0;
     int width = 500;
@@ -219,6 +222,20 @@ DWORD WINAPI WorkerThread(LPVOID) {
     return 0;
 }
 
+// Renders the source image into a square HICON of the requested size.
+HICON MakeIcon(Gdiplus::Bitmap* src, int size) {
+    if (!src || size <= 0) return nullptr;
+    Gdiplus::Bitmap scaled(size, size, PixelFormat32bppARGB);
+    {
+        Gdiplus::Graphics gfx(&scaled);
+        gfx.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBicubic);
+        gfx.DrawImage(src, 0, 0, size, size);
+    }
+    HICON icon = nullptr;
+    if (scaled.GetHICON(&icon) != Gdiplus::Ok) return nullptr;
+    return icon;
+}
+
 }  // namespace
 
 void Push(const UiMsg& msg) { PushImpl(msg); }
@@ -250,8 +267,14 @@ void Run(const std::wstring& title, int width, int height,
         if (data && size) {
             IStream* stream = SHCreateMemStream((const BYTE*)data, size);
             if (stream) {
-                g->icon_bmp = new Gdiplus::Bitmap(stream);
-                stream->Release();
+                Gdiplus::Bitmap* bmp = new Gdiplus::Bitmap(stream);
+                if (bmp->GetLastStatus() == Gdiplus::Ok) {
+                    g->icon_bmp = bmp;
+                    g->icon_stream = stream;
+                } else {
+                    delete bmp;
+                    stream->Release();
+                }
             }
         }
     }
@@ -285,6 +308,16 @@ void Run(const std::wstring& title, int width, int height,
                                 wx, wy, ww, hh, nullptr, nullptr, hInst, nullptr);
     g->hMain = hwnd;
 
+    // Title bar / taskbar icon from the same embedded PNG.
+    if (g->icon_bmp) {
+        g->h_icon_big = MakeIcon(g->icon_bmp, GetSystemMetrics(SM_CXICON));
+        g->h_icon_small = MakeIcon(g->icon_bmp, GetSystemMetrics(SM_CXSMICON));
+        if (g->h_icon_big)
+            SendMessageW(hwnd, WM_SETICON, ICON_BIG, (LPARAM)g->h_icon_big);
+        if (g->h_icon_small)
+            SendMessageW(hwnd, WM_SETICON, ICON_SMALL, (LPARAM)g->h_icon_small);
+    }
+
     g->font = CreateFontW(15, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
                           DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
                           CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
@@ -309,7 +342,10 @@ void Run(const std::wstring& title, int width, int height,
     DeleteObject(g->white);
     DeleteObject(g->green);
     DeleteObject(g->track);
+    if (g->h_icon_big) DestroyIcon(g->h_icon_big);
+    if (g->h_icon_small) DestroyIcon(g->h_icon_small);
     if (g->icon_bmp) delete g->icon_bmp;
+    if (g->icon_stream) g->icon_stream->Release();
     Gdiplus::GdiplusShutdown(g->gdi_token);
     DeleteCriticalSection(&g->cs);
     g = nullptr;

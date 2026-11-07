@@ -27,20 +27,25 @@ int APIENTRY WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
     }
 
     if (uri.empty()) {
-        // First run: ensure the client is downloaded before opening the site
-        if (!client::Installed()) {
-            try { client::MigrateRootInstall(); } catch (...) {}
-        }
-        if (!client::Installed()) {
-            client::ProgressFn progress = [](uint64_t, uint64_t) {};
-            client::StatusFn status = [](const std::wstring&) {};
-            std::wstring err;
-            client::DownloadAndInstall(progress, status, &err);
-        }
-        // Set the URI: register the bmr:// scheme so the site can fire it later
+        // First run: show the GUI, download the client in the background,
+        // then open the site once installation is confirmed.
         protocol::Register();
-        // Open the site
-        ShellExecuteW(nullptr, L"open", cfg::kSiteUrl, nullptr, nullptr, SW_SHOW);
+        std::function<void()> pipeline = []() {
+            if (!client::Installed()) {
+                try { client::MigrateRootInstall(); } catch (...) {}
+            }
+            if (!client::Installed()) {
+                client::ProgressFn progress = [](uint64_t, uint64_t) {};
+                client::StatusFn status = [](const std::wstring&) {};
+                std::wstring err;
+                client::DownloadAndInstall(progress, status, &err);
+            }
+            // Only open the site once the client is confirmed installed
+            if (client::Installed()) {
+                ShellExecuteW(nullptr, L"open", cfg::kSiteUrl, nullptr, nullptr, SW_SHOW);
+            }
+        };
+        ui::Run(cfg::kTitle, 500, 330, pipeline);
         return 0;
     }
 

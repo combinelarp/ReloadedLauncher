@@ -51,7 +51,7 @@ bool FindGameExeIn(const std::wstring& root, std::wstring* found, bool* stop) {
                 *stop = true;
                 return true;
             }
-        } else if (lstrcmpW(fd.cFileName, cfg::kGameExe) == 0) {
+        } else if (_wcsicmp(fd.cFileName, cfg::kGameExe) == 0) {
             *found = full;
             *stop = true;
             return true;
