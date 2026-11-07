@@ -6,7 +6,8 @@
 - libzip integration for ZIP extraction (replaces PowerShell Expand-Archive)
 
 # How to build?
-- Have MSVC (Visual Studio 2022) Link : https://aka.ms/vs/17/release/vs_community.exe installed or WinLibs Mingw Link : https://winlibs.com/
+- Have MSVC (Visual Studio 2022) Link : https://aka.ms/vs/17/release/vs_community.exe installed
+- Have WinLibs Mingw Installed if u dont want to install msvc Link : https://winlibs.com/
 # Step 1
 - run this "python waf configure"
 # Step 2
