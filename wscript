@@ -5,22 +5,163 @@ def options(opt):
 def configure(conf):
     conf.load('compiler_cxx')
     # Windows flags
-    conf.env.append_unique('CXXFLAGS', ['/std:c++17', '/W3', '/DWIN32_LEAN_AND_MEAN', '/D_CRT_SECURE_NO_WARNINGS', '/EHsc'])
+    conf.env.append_unique('CXXFLAGS', ['/std:c++17', '/W3', '/DWIN32_LEAN_AND_MEAN', '/D_CRT_SECURE_NO_WARNINGS', '/EHsc', '/DZIP_STATIC'])
+    # C flags for libzip/zlib
+    conf.env.append_unique('CFLAGS', ['/std:c11', '/W3', '/DWIN32_LEAN_AND_MEAN', '/D_CRT_SECURE_NO_WARNINGS', '/DZIP_STATIC'])
     conf.env.append_unique('LINKFLAGS', ['/SUBSYSTEM:WINDOWS', '/ENTRY:WinMainCRTStartup'])
     # Libraries
-    conf.env.LIB = ['gdiplus', 'wininet', 'shell32', 'ole32', 'shlwapi', 'ws2_32', 'advapi32', 'user32', 'gdi32']
+    conf.env.LIB = ['gdiplus', 'wininet', 'shell32', 'ole32', 'shlwapi', 'ws2_32', 'advapi32', 'user32', 'gdi32', 'bcrypt']
 
 def build(bld):
-    # Compile resources
-    bld(rule='rc /fo ${TGT} ${SRC}', source='src/resource.rc', target='src/resource.res')
-    
+    # Build zlib as a static library
+    zlib_src = bld.path.ant_glob('src/zlib/*.c')
+    bld.stlib(
+        target='zlib',
+        source=zlib_src,
+        includes=['src/zlib'],
+    )
+
+    # Build libzip as a static library
+    libzip_src = [
+        'src/libzip/lib/siphash.c',
+        'src/libzip/lib/zip_add.c',
+        'src/libzip/lib/zip_add_dir.c',
+        'src/libzip/lib/zip_add_entry.c',
+        'src/libzip/lib/zip_algorithm_deflate.c',
+        'src/libzip/lib/zip_buffer.c',
+        'src/libzip/lib/zip_close.c',
+        'src/libzip/lib/zip_crypto.c',
+        'src/libzip/lib/zip_delete.c',
+        'src/libzip/lib/zip_dir_add.c',
+        'src/libzip/lib/zip_dirent.c',
+        'src/libzip/lib/zip_discard.c',
+        'src/libzip/lib/zip_entry.c',
+        'src/libzip/lib/zip_error.c',
+        'src/libzip/lib/zip_error_clear.c',
+        'src/libzip/lib/zip_error_get.c',
+        'src/libzip/lib/zip_error_get_sys_type.c',
+        'src/libzip/lib/zip_error_strerror.c',
+        'src/libzip/lib/zip_error_to_str.c',
+        'src/libzip/lib/zip_extra_field.c',
+        'src/libzip/lib/zip_extra_field_api.c',
+        'src/libzip/lib/zip_fclose.c',
+        'src/libzip/lib/zip_fdopen.c',
+        'src/libzip/lib/zip_file_add.c',
+        'src/libzip/lib/zip_file_error_clear.c',
+        'src/libzip/lib/zip_file_error_get.c',
+        'src/libzip/lib/zip_file_get_comment.c',
+        'src/libzip/lib/zip_file_get_external_attributes.c',
+        'src/libzip/lib/zip_file_get_offset.c',
+        'src/libzip/lib/zip_file_rename.c',
+        'src/libzip/lib/zip_file_replace.c',
+        'src/libzip/lib/zip_file_set_comment.c',
+        'src/libzip/lib/zip_file_set_encryption.c',
+        'src/libzip/lib/zip_file_set_external_attributes.c',
+        'src/libzip/lib/zip_file_set_mtime.c',
+        'src/libzip/lib/zip_file_strerror.c',
+        'src/libzip/lib/zip_fopen.c',
+        'src/libzip/lib/zip_fopen_encrypted.c',
+        'src/libzip/lib/zip_fopen_index.c',
+        'src/libzip/lib/zip_fopen_index_encrypted.c',
+        'src/libzip/lib/zip_fread.c',
+        'src/libzip/lib/zip_fseek.c',
+        'src/libzip/lib/zip_ftell.c',
+        'src/libzip/lib/zip_get_archive_comment.c',
+        'src/libzip/lib/zip_get_archive_flag.c',
+        'src/libzip/lib/zip_get_encryption_implementation.c',
+        'src/libzip/lib/zip_get_file_comment.c',
+        'src/libzip/lib/zip_get_name.c',
+        'src/libzip/lib/zip_get_num_entries.c',
+        'src/libzip/lib/zip_hash.c',
+        'src/libzip/lib/zip_io_util.c',
+        'src/libzip/lib/zip_libzip_version.c',
+        'src/libzip/lib/zip_memdup.c',
+        'src/libzip/lib/zip_name_locate.c',
+        'src/libzip/lib/zip_new.c',
+        'src/libzip/lib/zip_open.c',
+        'src/libzip/lib/zip_pkware.c',
+        'src/libzip/lib/zip_progress.c',
+        'src/libzip/lib/zip_realloc.c',
+        'src/libzip/lib/zip_rename.c',
+        'src/libzip/lib/zip_replace.c',
+        'src/libzip/lib/zip_set_archive_comment.c',
+        'src/libzip/lib/zip_set_archive_flag.c',
+        'src/libzip/lib/zip_set_default_password.c',
+        'src/libzip/lib/zip_set_file_comment.c',
+        'src/libzip/lib/zip_set_file_compression.c',
+        'src/libzip/lib/zip_set_name.c',
+        'src/libzip/lib/zip_source_accept_empty.c',
+        'src/libzip/lib/zip_source_at_eof.c',
+        'src/libzip/lib/zip_source_begin_write.c',
+        'src/libzip/lib/zip_source_begin_write_cloning.c',
+        'src/libzip/lib/zip_source_buffer.c',
+        'src/libzip/lib/zip_source_call.c',
+        'src/libzip/lib/zip_source_close.c',
+        'src/libzip/lib/zip_source_commit_write.c',
+        'src/libzip/lib/zip_source_compress.c',
+        'src/libzip/lib/zip_source_crc.c',
+        'src/libzip/lib/zip_source_error.c',
+        'src/libzip/lib/zip_source_file_common.c',
+        'src/libzip/lib/zip_source_free.c',
+        'src/libzip/lib/zip_source_function.c',
+        'src/libzip/lib/zip_source_get_dostime.c',
+        'src/libzip/lib/zip_source_get_file_attributes.c',
+        'src/libzip/lib/zip_source_is_deleted.c',
+        'src/libzip/lib/zip_source_layered.c',
+        'src/libzip/lib/zip_source_open.c',
+        'src/libzip/lib/zip_source_pass_to_lower_layer.c',
+        'src/libzip/lib/zip_source_pkware_decode.c',
+        'src/libzip/lib/zip_source_pkware_encode.c',
+        'src/libzip/lib/zip_source_read.c',
+        'src/libzip/lib/zip_source_remove.c',
+        'src/libzip/lib/zip_source_rollback_write.c',
+        'src/libzip/lib/zip_source_seek.c',
+        'src/libzip/lib/zip_source_seek_write.c',
+        'src/libzip/lib/zip_source_stat.c',
+        'src/libzip/lib/zip_source_supports.c',
+        'src/libzip/lib/zip_source_tell.c',
+        'src/libzip/lib/zip_source_tell_write.c',
+        'src/libzip/lib/zip_source_window.c',
+        'src/libzip/lib/zip_source_winzip_aes_decode.c',
+        'src/libzip/lib/zip_source_winzip_aes_encode.c',
+        'src/libzip/lib/zip_source_write.c',
+        'src/libzip/lib/zip_source_zip.c',
+        'src/libzip/lib/zip_source_zip_new.c',
+        'src/libzip/lib/zip_stat.c',
+        'src/libzip/lib/zip_stat_index.c',
+        'src/libzip/lib/zip_stat_init.c',
+        'src/libzip/lib/zip_strerror.c',
+        'src/libzip/lib/zip_string.c',
+        'src/libzip/lib/zip_unchange.c',
+        'src/libzip/lib/zip_unchange_all.c',
+        'src/libzip/lib/zip_unchange_archive.c',
+        'src/libzip/lib/zip_unchange_data.c',
+        'src/libzip/lib/zip_utf-8.c',
+        'src/libzip/lib/zip_winzip_aes.c',
+        'src/libzip/lib/zip_source_file_win32.c',
+        'src/libzip/lib/zip_source_file_win32_named.c',
+        'src/libzip/lib/zip_source_file_win32_utf16.c',
+        'src/libzip/lib/zip_source_file_win32_utf8.c',
+        'src/libzip/lib/zip_source_file_win32_ansi.c',
+        'src/libzip/lib/zip_random_win32.c',
+        'src/libzip/lib/zip_crypto_win.c',
+        'src/libzip/lib/zip_err_str.c',
+    ]
+    bld.stlib(
+        target='libzip',
+        source=libzip_src,
+        includes=['src/libzip/lib', 'src/zlib'],
+        use=['zlib'],
+        defines=['ZIP_STATIC'],
+    )
+
     # Recurse into source subdirectories
     bld.recurse('src')
-    
+
     # Link all objects into the executable
     bld.program(
         target='BlockmanGO',
-        source=bld.path.ant_glob('src/**/*.cpp'),
-        includes=['.', 'src'],
-        use=['src/resource.res']
+        source=bld.path.ant_glob('src/**/*.cpp') + ['src/resource.rc'],
+        includes=['.', 'src', 'src/libzip/lib', 'src/zlib'],
+        use=['libzip', 'zlib'],
     )

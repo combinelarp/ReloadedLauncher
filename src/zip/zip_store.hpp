@@ -1,14 +1,16 @@
 #pragma once
-// Writes uncompressed ("stored") ZIP archives - enough for map-debug.zip.
+// Create a stored (uncompressed) ZIP archive from a list of files.
 
-#include <windows.h>
 #include <string>
 #include <vector>
+#include <utility>
 
-namespace zip {
+namespace ziputil {
 
+// Creates a stored (no compression) ZIP archive at `zip_path` containing the
+// files specified in `files`. Each entry is a pair of (full_local_path,
+// archive_name). Returns false on error.
 bool CreateStored(const std::wstring& zip_path,
                   const std::vector<std::pair<std::wstring, std::wstring>>& files);
-// files: {full_source_path, archive_name} (forward slashes)
 
-}  // namespace zip
+}  // namespace ziputil

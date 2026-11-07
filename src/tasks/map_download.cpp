@@ -152,7 +152,7 @@ void PackDebugZip(const std::wstring& mid_dir, const StatusFn& status) {
         if (head == L"map_debug") continue;
         kept.push_back(p);
     }
-    zip::CreateStored(zip_path, kept);
+    ziputil::CreateStored(zip_path, kept);
 }
 
 }  // namespace
@@ -334,7 +334,7 @@ void EnsureDownloaded(const std::wstring& game_id,
 
     std::wstring dest = root_named_mid ? gid_dir : mid_dir;
     CreateDirs(dest);
-    if (!shell::ExtractZip(staging, dest, &err)) {
+    if (!ziputil::Extract(staging, dest, &err)) {
         DeleteFileW(staging.c_str());
         if (error) *error = err;
         return;
@@ -343,7 +343,7 @@ void EnsureDownloaded(const std::wstring& game_id,
 
     std::wstring debug_dir = mid_dir + L"\\map_debug";
     CreateDirs(debug_dir);
-    if (!shell::ExtractZip(staging, debug_dir, &err) && error)
+    if (!ziputil::Extract(staging, debug_dir, &err) && error)
         *error = err;  // duplicate extraction failure is non-fatal
     DeleteFileW(staging.c_str());
     PackDebugZip(mid_dir, status);

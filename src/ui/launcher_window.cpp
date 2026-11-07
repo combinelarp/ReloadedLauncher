@@ -7,6 +7,9 @@
 #include <objidl.h>
 #include <shlwapi.h>
 #include <gdiplus.h>
+#include <cmath>
+#include <cstdint>
+#include <functional>
 #include <string>
 #include <vector>
 #include <cwctype>
@@ -20,33 +23,52 @@ namespace ui {
 
 namespace {
 
+// ---- default client size (same as the original file) ----
+constexpr int kWinW = 500;
+constexpr int kWinH = 330;
+
+// The layout below is measured from the reference screenshot. Coordinates
+// are in "design" pixels (the screenshot's pixels) and are scaled to the real
+// client size at paint time, so it looks the same at any window size.
+constexpr double kDesignW = 399.0;
+constexpr double kDesignH = 274.0;   // screenshot rows 4..277
+constexpr double kDesignY0 = 4.0;    // screenshot row where the window starts
+
+// ---- colors (sampled from the screenshot) ----
+constexpr COLORREF kFrameOlive = RGB(107, 152, 49);   // frame bars
+constexpr COLORREF kTeal       = RGB(0, 155, 76);     // corner squares
+constexpr COLORREF kLime       = RGB(184, 206, 46);   // inner squares
+constexpr COLORREF kTrack      = RGB(231, 231, 231);
+constexpr COLORREF kTrackEdge  = RGB(205, 205, 205);
+constexpr COLORREF kFill       = RGB(3, 152, 38);
+constexpr COLORREF kText       = RGB(74, 74, 74);
+
+// The screenshot's top-right corner has no teal square; set false to match
+// the screenshot literally.
+constexpr bool kDrawTopRightSquare = true;
+
+constexpr int kIconSize = 112;  // your own icon, same as the original file
+constexpr int kIconY    = 46;
+
 struct Impl {
     std::vector<UiMsg> queue;
     CRITICAL_SECTION cs;
     LONG pulse = 0;
-    LONG bar_w = 300;
-    LONG bar_h = 14;
-    LONG bar_x = 100;
-    LONG bar_y = 200;
+    LONG bar_w = 299;           // track width at 500px; only used for the pulse wrap
     LONG indeterminate = 0;
     uint64_t done_bytes = 0;
     uint64_t total_bytes = 0;
     std::wstring status_text = L"Downloading Game...";
     std::wstring pct_text = L"0%";
     HFONT font = nullptr;
-    HBRUSH white = nullptr;
-    HBRUSH green = nullptr;
-    HBRUSH track = nullptr;
-    HBRUSH khaki = nullptr;
-    HBRUSH border = nullptr;
     Gdiplus::Bitmap* icon_bmp = nullptr;
     IStream* icon_stream = nullptr;  // GDI+ decodes lazily; must outlive icon_bmp
     HICON h_icon_big = nullptr;
     HICON h_icon_small = nullptr;
     Gdiplus::GdiplusStartupInput gdi_start;
     ULONG_PTR gdi_token = 0;
-    int width = 500;
-    int height = 330;
+    int width = kWinW;
+    int height = kWinH;
     std::function<void()> pipeline;
     LONG closed = 0;
     HWND hMain = nullptr;
@@ -72,80 +94,105 @@ void Paint(HWND hwnd, HDC hdc) {
     HBITMAP bmp = CreateCompatibleBitmap(hdc, w, h);
     HBITMAP old_bmp = (HBITMAP)SelectObject(mem, bmp);
 
-    // Fill background
-    FillRect(mem, &rc, g->white);
+    // design -> client pixel mapping
+    auto X = [&](double x) { return (int)std::lround(x * w / kDesignW); };
+    auto Y = [&](double y) { return (int)std::lround((y - kDesignY0) * h / kDesignH); };
 
-    // Border and squares
-    int m = 14, t = 10;
-    HPEN border_pen = CreatePen(PS_SOLID, t, RGB(82, 122, 23));
-    HBRUSH old_brush = (HBRUSH)SelectObject(mem, GetStockObject(NULL_BRUSH));
-    HPEN old_pen = (HPEN)SelectObject(mem, border_pen);
-    Rectangle(mem, m, m, w - m, h - m);
+    HBRUSH dc_brush = (HBRUSH)GetStockObject(DC_BRUSH);
+    auto fillPx = [&](int l, int t, int r, int b, COLORREF c) {
+        if (r <= l || b <= t) return;
+        SetDCBrushColor(mem, c);
+        RECT r2 = {l, t, r, b};
+        FillRect(mem, &r2, dc_brush);
+    };
+    // rectangle given in design coordinates (right/bottom exclusive)
+    auto box = [&](double x0, double y0, double x1, double y1, COLORREF c) {
+        fillPx(X(x0), Y(y0), X(x1), Y(y1), c);
+    };
 
-    // Khaki squares
-    HBRUSH sq_brush = CreateSolidBrush(RGB(178, 180, 92));
-    SelectObject(mem, sq_brush);
-    SelectObject(mem, GetStockObject(NULL_PEN));
-    int s = 30;
-    struct Pt { int x, y; };
-    Pt pts[] = {{0, 44}, {34, 0}, {0, 258}, {34, 296},
-                {472, 48}, {472, 196}, {438, 296}, {472, 296}};
-    for (auto& pt : pts) {
-        Rectangle(mem, pt.x, pt.y, pt.x + s, pt.y + s);
+    // ---- background: near-white, fading to light gray toward the bottom ----
+    for (int y = 0; y < h; ++y) {
+        double dy = y * kDesignH / h + kDesignY0;   // screenshot row
+        double v = 251.0;
+        if (dy > 172.0) {
+            double t = (std::min)((dy - 172.0) / (262.0 - 172.0), 1.0);
+            v = 251.0 - 13.0 * t;                   // 251 -> 238
+        }
+        int c = (int)std::lround(v);
+        fillPx(0, y, w, y + 1, RGB(c, c, c));
     }
-    DeleteObject(sq_brush);
-    SelectObject(mem, old_pen);
-    DeleteObject(border_pen);
 
-    // Icon
+    // ---- frame bars (olive) ----
+    box(21, 4, 378, 10, kFrameOlive);       // top bar
+    box(21, 272, 378, 278, kFrameOlive);    // bottom bar
+    box(0, 25, 5, 258, kFrameOlive);        // left bar
+    box(393, 25, 399, 258, kFrameOlive);    // right bar
+    // top-right step pieces
+    box(372, 10, 378, 25, kFrameOlive);     // vertical piece under the top bar end
+    box(380, 25, 399, 31, kFrameOlive);     // short horizontal piece before the right bar
+
+    // ---- teal corner squares (20x20) ----
+    box(0, 4, 20, 24, kTeal);               // top-left
+    box(0, 258, 20, 278, kTeal);            // bottom-left
+    box(379, 258, 399, 278, kTeal);         // bottom-right
+    if (kDrawTopRightSquare)
+        box(379, 4, 399, 24, kTeal);        // top-right
+
+    // ---- lime inner squares (20x20) ----
+    box(20, 24, 40, 44, kLime);             // top-left
+    box(359, 24, 379, 44, kLime);           // top-right
+    box(20, 238, 40, 258, kLime);           // bottom-left
+    box(359, 238, 379, 258, kLime);         // bottom-right
+
+    // ---- icon (your own image) ----
     if (g->icon_bmp) {
         Gdiplus::Graphics g_gfx(mem);
-        g_gfx.DrawImage(g->icon_bmp, 194, 46, 112, 112);
+        g_gfx.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBicubic);
+        g_gfx.DrawImage(g->icon_bmp, (w - kIconSize) / 2, kIconY, kIconSize, kIconSize);
     }
 
-    // Progress bar track
-    RECT tr = {g->bar_x - 1, g->bar_y - 1, g->bar_x + g->bar_w + 1, g->bar_y + g->bar_h + 1};
-    FillRect(mem, &tr, g->track);
+    // ---- progress bar: outer rect (80,177)-(321,190) in screenshot pixels ----
+    int ox0 = X(80),  oy0 = Y(177), ox1 = X(321), oy1 = Y(190);
+    int tx0 = ox0 + 1, ty0 = oy0 + 1, tx1 = ox1 - 1, ty1 = oy1 - 1;   // inner track
+    fillPx(ox0, oy0, ox1, oy1, kTrackEdge);
+    fillPx(tx0, ty0, tx1, ty1, kTrack);
 
-    // Progress bar fill
-    RECT fr;
-    fr.top = g->bar_y;
-    fr.bottom = g->bar_y + g->bar_h;
+    LONG trackW = tx1 - tx0;
+    LONG left, right;
     if (g->indeterminate) {
-        LONG front = max(0L, g->pulse - 60);
-        fr.left = g->bar_x + front;
-        fr.right = g->bar_x + g->pulse;
+        LONG front = (std::max)(0L, g->pulse - 60L);
+        left = tx0 + (std::min)(front, trackW);
+        right = tx0 + (std::min)((LONG)g->pulse, trackW);
     } else {
-        fr.left = g->bar_x;
+        left = tx0;
         uint64_t done = g->done_bytes;
         uint64_t total = g->total_bytes;
         LONG w_fill = 0;
         if (total > 0) {
-            w_fill = static_cast<LONG>(static_cast<uint64_t>(g->bar_w) * done / total);
-            if (w_fill > g->bar_w) w_fill = g->bar_w;
+            w_fill = static_cast<LONG>(static_cast<uint64_t>(trackW) * done / total);
+            if (w_fill > trackW) w_fill = trackW;
         } else if (done > 0) {
-            w_fill = g->bar_w;
+            w_fill = trackW;
         }
-        fr.right = g->bar_x + w_fill;
+        right = tx0 + w_fill;
     }
-    if (fr.right > fr.left) {
-        HBRUSH fill_brush = CreateSolidBrush(RGB(116, 171, 44));
-        FillRect(mem, &fr, fill_brush);
-        DeleteObject(fill_brush);
-    }
+    if (right > left)
+        fillPx(left, ty0, right, ty1, kFill);
 
-    // Text labels
-    SelectObject(mem, g->font);
+    // ---- text: stage on the left, percent/size on the right, under the bar ----
+    HFONT old_font = (HFONT)SelectObject(mem, g->font);
     SetBkMode(mem, TRANSPARENT);
-    SetTextColor(mem, RGB(74, 74, 74));
+    SetTextColor(mem, kText);
 
-    RECT st_rc = {g->bar_x - 60, g->bar_y + 20, g->bar_x + g->bar_w - 55, g->bar_y + 50};
+    int text_top = oy1 + 8;
+    int text_bot = text_top + 26;
+    RECT st_rc = {tx0, text_top, tx1 - 70, text_bot};
     DrawTextW(mem, g->status_text.c_str(), -1, &st_rc,
-              DT_CENTER | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
-
-    RECT pt_rc = {g->bar_x + g->bar_w - 50, g->bar_y + 20, g->bar_x + g->bar_w, g->bar_y + 50};
+              DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
+    RECT pt_rc = {tx1 - 70, text_top, tx1, text_bot};
     DrawTextW(mem, g->pct_text.c_str(), -1, &pt_rc,
               DT_RIGHT | DT_SINGLELINE | DT_NOPREFIX);
+    SelectObject(mem, old_font);
 
     BitBlt(hdc, 0, 0, w, h, mem, 0, 0, SRCCOPY);
     SelectObject(mem, old_bmp);
@@ -155,6 +202,8 @@ void Paint(HWND hwnd, HDC hdc) {
 
 LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     switch (msg) {
+        case WM_ERASEBKGND:
+            return 1;  // everything is painted in Paint(); avoids flicker
         case WM_PAINT: {
             PAINTSTRUCT ps;
             HDC hdc = BeginPaint(hwnd, &ps);
@@ -292,7 +341,7 @@ void Run(const std::wstring& title, int width, int height,
     wc.lpfnWndProc = WndProc;
     wc.hInstance = hInst;
     wc.hCursor = LoadCursorW(nullptr, MAKEINTRESOURCEW(IDC_ARROW));
-    wc.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
+    wc.hbrBackground = nullptr;
     wc.lpszClassName = L"ReloadedLauncherClass";
     RegisterClassExW(&wc);
 
@@ -323,9 +372,6 @@ void Run(const std::wstring& title, int width, int height,
     g->font = CreateFontW(15, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
                           DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
                           CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
-    g->white = CreateSolidBrush(RGB(255, 255, 255));
-    g->green = CreateSolidBrush(RGB(116, 171, 44));
-    g->track = CreateSolidBrush(RGB(227, 227, 227));
 
     ShowWindow(hwnd, SW_SHOW);
     UpdateWindow(hwnd);
@@ -341,9 +387,6 @@ void Run(const std::wstring& title, int width, int height,
 
     KillTimer(hwnd, 1);
     DeleteObject(g->font);
-    DeleteObject(g->white);
-    DeleteObject(g->green);
-    DeleteObject(g->track);
     if (g->h_icon_big) DestroyIcon(g->h_icon_big);
     if (g->h_icon_small) DestroyIcon(g->h_icon_small);
     if (g->icon_bmp) delete g->icon_bmp;

@@ -1,27 +1,25 @@
 #pragma once
-// Zip extraction via hidden PowerShell Expand-Archive (zero extra deps).
+// ZIP extraction via libzip (replaces the old PowerShell Expand-Archive path).
 
 #include <functional>
 #include <string>
-#include <cstdint>
 
 namespace shell {
 
-// Reports bytes already written into the destination plus the archive's total
-// uncompressed size (0 when it cannot be determined).
-using ProgressFn = std::function<void(uint64_t done, uint64_t total)>;
-
-// Extracts winZipPath into destDir (created if needed). Returns exit code 0 on
-// success; -1 if the process could not start; otherwise PowerShell's code.
-int ExtractZipTo(const std::wstring& zip_path, const std::wstring& dest_dir,
-                 const ProgressFn& progress = nullptr);
-
-// Extracts zip returning log for debug strings (same signature as above).
-bool ExtractZip(const std::wstring& zip_path, const std::wstring& dest_dir,
-                std::wstring* err, const ProgressFn& progress = nullptr);
-
-// Writes bytes to a temporary .zip file next to dest (auto cleanup deferred).
-bool WriteTempFile(const std::wstring& dest_dir, const wchar_t* name,
-                   const unsigned char* data, size_t len, std::wstring* path_out);
+// Writes a temporary file to `dir` with the given `name` and `data`.
+// Returns true on success and fills `out_path` with the full path.
+bool WriteTempFile(const std::wstring& dir, const wchar_t* name,
+                   const void* data, size_t size, std::wstring* out_path);
 
 }  // namespace shell
+
+namespace ziputil {
+
+using ProgressFn = std::function<void(uint64_t done, uint64_t total)>;
+
+// Extract every entry of `zip_path` into `dest_dir`. Creates `dest_dir` and
+// any subdirectories as needed. Returns false and fills `error` on failure.
+bool Extract(const std::wstring& zip_path, const std::wstring& dest_dir,
+             std::wstring* error, const ProgressFn& progress = nullptr);
+
+}  // namespace ziputil

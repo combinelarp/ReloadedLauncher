@@ -151,8 +151,8 @@ bool DownloadAndInstall(const ProgressFn& progress, const StatusFn& status,
         return false;
     }
     std::wstring err;
-    // Extraction runs Expand-Archive; report bytes written so the bar moves.
-    if (!shell::ExtractZip(temp_zip, cfg::ClientDir(), &err, net_progress)) {
+    // Extract using libzip.
+    if (!ziputil::Extract(temp_zip, cfg::ClientDir(), &err, net_progress)) {
         if (error) *error = err;
         DeleteFileW(temp_zip.c_str());
         return false;
