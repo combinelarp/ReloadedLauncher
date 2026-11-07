@@ -5,6 +5,7 @@
 #include "protocol.hpp"
 #include "ui/launcher_window.hpp"
 #include "pipeline.hpp"
+#include "tasks/client_install.hpp"
 #include "config.hpp"
 
 #define WIN32_LEAN_AND_MEAN
@@ -26,6 +27,19 @@ int APIENTRY WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
     }
 
     if (uri.empty()) {
+        // First run: ensure the client is downloaded before opening the site
+        if (!client::Installed()) {
+            try { client::MigrateRootInstall(); } catch (...) {}
+        }
+        if (!client::Installed()) {
+            client::ProgressFn progress = [](uint64_t, uint64_t) {};
+            client::StatusFn status = [](const std::wstring&) {};
+            std::wstring err;
+            client::DownloadAndInstall(progress, status, &err);
+        }
+        // Set the URI: register the bmr:// scheme so the site can fire it later
+        protocol::Register();
+        // Open the site
         ShellExecuteW(nullptr, L"open", cfg::kSiteUrl, nullptr, nullptr, SW_SHOW);
         return 0;
     }
