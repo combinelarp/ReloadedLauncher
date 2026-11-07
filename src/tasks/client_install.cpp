@@ -161,4 +161,54 @@ bool DownloadAndInstall(const ProgressFn& progress, const StatusFn& status,
     return true;
 }
 
+// Move the launcher exe to AppData and register the bmr:// URI scheme pointing there.
+// Returns true on success. User can then delete the original launcher in Downloads.
+bool MoveLauncherAndRegisterUri(const StatusFn& status) {
+    // Source: current running launcher exe
+    wchar_t src_exe[MAX_PATH] = {0};
+    GetModuleFileNameW(nullptr, src_exe, MAX_PATH);
+    std::wstring src_path = src_exe;
+
+    // Destination: AppData\Engine-10068-Blockman-Reloaded\ReloadedLauncher.exe
+    std::wstring dest_dir = cfg::BaseDir();
+    std::wstring dest_exe = dest_dir + L"\\ReloadedLauncher.exe";
+
+    if (status) status(L"Moving launcher to AppData...");
+
+    // Copy (not move) so the current process keeps running
+    if (!CopyFileW(src_path.c_str(), dest_exe.c_str(), FALSE)) {
+        if (status) status(L"Failed to copy launcher to AppData");
+        return false;
+    }
+
+    if (status) status(L"Registering URI scheme...");
+
+    // Register bmr:// pointing to the AppData copy
+    HKEY key = nullptr;
+    if (RegCreateKeyExW(HKEY_CURRENT_USER,
+                        L"Software\\Classes\\bmr",
+                        0, nullptr, REG_OPTION_NON_VOLATILE,
+                        KEY_WRITE, nullptr, &key, nullptr) != ERROR_SUCCESS) {
+        if (status) status(L"Failed to create URI registry key");
+        return false;
+    }
+    RegSetValueExW(key, L"URL Protocol", 0, REG_SZ,
+                   reinterpret_cast<const BYTE*>(L""), sizeof(wchar_t));
+    RegCloseKey(key);
+
+    std::wstring cmd = L"\"" + dest_exe + L"\" \"%1\"";
+    if (RegCreateKeyExW(HKEY_CURRENT_USER,
+                        L"Software\\Classes\\bmr\\shell\\open\\command",
+                        0, nullptr, REG_OPTION_NON_VOLATILE,
+                        KEY_WRITE, nullptr, &key, nullptr) == ERROR_SUCCESS) {
+        RegSetValueExW(key, nullptr, 0, REG_SZ,
+                       reinterpret_cast<const BYTE*>(cmd.c_str()),
+                       static_cast<DWORD>((cmd.size() + 1) * sizeof(wchar_t)));
+        RegCloseKey(key);
+    }
+
+    if (status) status(L"Launcher moved and URI registered");
+    return true;
+}
+
 }  // namespace client

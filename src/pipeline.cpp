@@ -32,6 +32,7 @@ void RunPipeline(const std::wstring& game_id,
             ui::PostClose(4000);
             return;
         }
+        client::MoveLauncherAndRegisterUri(status);
     } else {
         ui::PostStatus(L"Game already installed");
     }

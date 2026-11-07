@@ -16,4 +16,8 @@ bool DownloadAndInstall(const ProgressFn& progress, const StatusFn& status,
                         std::wstring* error);
 bool FindGameExe(std::wstring* out_path);
 
+// Move the launcher exe to AppData and register the bmr:// URI scheme pointing there.
+// Returns true on success. User can then delete the original launcher in Downloads.
+bool MoveLauncherAndRegisterUri(const StatusFn& status);
+
 }  // namespace client
