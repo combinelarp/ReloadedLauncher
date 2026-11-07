@@ -29,7 +29,6 @@ int APIENTRY WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
     if (uri.empty()) {
         // First run: show the GUI, download the client in the background,
         // then open the site once installation is confirmed.
-        protocol::Register();
         std::function<void()> pipeline = []() {
             if (!client::Installed()) {
                 try { client::MigrateRootInstall(); } catch (...) {}
@@ -48,6 +47,9 @@ int APIENTRY WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
                     return;
                 }
             }
+            // Move launcher to AppData and register URI scheme pointing there
+            client::MoveLauncherAndRegisterUri([](const std::wstring& s) { ui::PostStatus(s); });
+            
             // Only open the site once the client is confirmed installed.
             if (client::Installed()) {
                 ui::PostStatus(L"Starting Blockman GO...");
@@ -63,7 +65,7 @@ int APIENTRY WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
         return 0;
     }
 
-    protocol::Register();
+    // URI launched from browser - already registered to AppData location
 
     // bmr://GameId:ServerIP:ServerPort
     std::wstring body = uri;
