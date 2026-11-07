@@ -5,6 +5,12 @@
 - ui/launcher_window, protocol, main.
 - libzip integration for ZIP extraction (replaces PowerShell Expand-Archive)
 
+# RL UI Vs Original 
+- RL:
+![UI](image.png)
+- Original :
+![UI](image2.png)
+
 # How to build?
 - Have MSVC (Visual Studio 2022) Link : https://aka.ms/vs/17/release/vs_community.exe installed
 - Have WinLibs Mingw Installed if u dont want to install msvc Link : https://winlibs.com/
