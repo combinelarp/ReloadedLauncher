@@ -210,6 +210,10 @@ void Paint(HWND hwnd, HDC hdc) {
     DeleteDC(mem);
 }
 
+static void __stdcall CloseTimerProc(HWND, UINT, UINT_PTR, DWORD) {
+    PostQuitMessage(0);
+}
+
 LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     switch (msg) {
         case WM_ERASEBKGND:
@@ -267,9 +271,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                     g->pct_text = buf;
                 } else if (m.type == kClose) {
                     if (!InterlockedExchange(&g->closed, 1)) {
-                        SetTimer(hwnd, 2, static_cast<UINT>(m.a), [](HWND, UINT, UINT_PTR, DWORD){
-                            PostQuitMessage(0);
-                        });
+                        SetTimer(hwnd, 2, static_cast<UINT>(m.a), &CloseTimerProc);
                     }
                 }
             }
@@ -355,7 +357,7 @@ void Run(const std::wstring& title, int width, int height,
     wc.cbSize = sizeof(wc);
     wc.lpfnWndProc = WndProc;
     wc.hInstance = hInst;
-    wc.hCursor = LoadCursorW(nullptr, MAKEINTRESOURCEW(IDC_ARROW));
+    wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
     wc.hbrBackground = nullptr;
     wc.lpszClassName = L"ReloadedLauncherClass";
     RegisterClassExW(&wc);

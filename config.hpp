@@ -1,6 +1,7 @@
 // Central paths / URLs for ReloadedLauncher (Blockman.Launcher clone).
 
 #include <shlobj.h>
+#include <cstdint>
 #include <string>
 
 namespace cfg {
