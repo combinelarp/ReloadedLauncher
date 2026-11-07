@@ -129,13 +129,21 @@ bool DownloadAndInstall(const ProgressFn& progress, const StatusFn& status,
     net::ProgressFn net_progress = [&](uint64_t done, uint64_t total) {
         if (progress) progress(done, total);
     };
+    if (progress) progress(0, 0);  // size unknown until the server answers
     net::Result res = net::Get(cfg::kClientZipUrl, net_progress, 60000);
     if (!res.ok || res.status / 100 != 2) {
-        if (error)
-            *error = L"Download failed (HTTP " + cfg::ToWString(res.status) + L")";
+        if (error) {
+            if (!res.error.empty())
+                *error = L"Download failed: " + res.error;
+            else if (res.status > 0)
+                *error = L"Download failed: HTTP " + cfg::ToWString(res.status);
+            else
+                *error = L"Download failed: no response";
+        }
         return false;
     }
     status(L"Extracting Game...");
+    if (progress) progress(0, 0);
     std::wstring temp_zip;
     if (!shell::WriteTempFile(cfg::BaseDir(), L"blockmango.zip", res.body.data(),
                               res.body.size(), &temp_zip)) {
@@ -143,7 +151,8 @@ bool DownloadAndInstall(const ProgressFn& progress, const StatusFn& status,
         return false;
     }
     std::wstring err;
-    if (!shell::ExtractZip(temp_zip, cfg::ClientDir(), &err)) {
+    // Extraction runs Expand-Archive; report bytes written so the bar moves.
+    if (!shell::ExtractZip(temp_zip, cfg::ClientDir(), &err, net_progress)) {
         if (error) *error = err;
         DeleteFileW(temp_zip.c_str());
         return false;

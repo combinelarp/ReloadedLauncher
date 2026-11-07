@@ -139,11 +139,13 @@ void Paint(HWND hwnd, HDC hdc) {
     SetBkMode(mem, TRANSPARENT);
     SetTextColor(mem, RGB(74, 74, 74));
 
-    RECT st_rc = {g->bar_x + 60, g->bar_y + 20, g->bar_x + 220, g->bar_y + 50};
-    DrawTextW(mem, g->status_text.c_str(), -1, &st_rc, DT_LEFT | DT_SINGLELINE);
+    RECT st_rc = {g->bar_x - 60, g->bar_y + 20, g->bar_x + g->bar_w - 55, g->bar_y + 50};
+    DrawTextW(mem, g->status_text.c_str(), -1, &st_rc,
+              DT_CENTER | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
 
-    RECT pt_rc = {g->bar_x + 210, g->bar_y + 20, g->bar_x + g->bar_w, g->bar_y + 50};
-    DrawTextW(mem, g->pct_text.c_str(), -1, &pt_rc, DT_LEFT | DT_SINGLELINE);
+    RECT pt_rc = {g->bar_x + g->bar_w - 50, g->bar_y + 20, g->bar_x + g->bar_w, g->bar_y + 50};
+    DrawTextW(mem, g->pct_text.c_str(), -1, &pt_rc,
+              DT_RIGHT | DT_SINGLELINE | DT_NOPREFIX);
 
     BitBlt(hdc, 0, 0, w, h, mem, 0, 0, SRCCOPY);
     SelectObject(mem, old_bmp);

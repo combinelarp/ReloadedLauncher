@@ -19,6 +19,30 @@ struct UrlBits {
     bool https = false;
 };
 
+// Turns the last Win32/WinINet error into a message the launcher can show.
+std::wstring LastErrorText() {
+    DWORD e = GetLastError();
+    if (!e) return L"network error";
+    wchar_t buf[256] = {0};
+    if (!FormatMessageW(FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
+                        nullptr, e, 0, buf, 255, nullptr))
+        return L"network error " + cfg::ToWString(e);
+    std::wstring msg = buf;
+    while (!msg.empty() && (msg.back() == L'\r' || msg.back() == L'\n' || msg.back() == L' '))
+        msg.pop_back();
+    if (msg.empty()) return L"network error " + cfg::ToWString(e);
+    return msg;
+}
+
+// Without these WinINet blocks forever on a stalled server, which looks like
+// an endless 0% download.
+void ApplyTimeouts(HINTERNET h, unsigned timeout_ms) {
+    DWORD ms = timeout_ms ? static_cast<DWORD>(timeout_ms) : 30000;
+    InternetSetOptionW(h, INTERNET_OPTION_CONNECT_TIMEOUT, &ms, sizeof(ms));
+    InternetSetOptionW(h, INTERNET_OPTION_SEND_TIMEOUT, &ms, sizeof(ms));
+    InternetSetOptionW(h, INTERNET_OPTION_RECEIVE_TIMEOUT, &ms, sizeof(ms));
+}
+
 bool Crack(const std::wstring& url, UrlBits* out) {
     wchar_t host[256] = {0};
     wchar_t path[2048] = {0};
@@ -40,25 +64,33 @@ bool Crack(const std::wstring& url, UrlBits* out) {
 
 Result Send(const Request& req, const ProgressFn& progress) {
     Result res;
-    UrlBits u;
-    if (!Crack(req.url, &u)) return res;
 
     HINTERNET session = InternetOpenW(cfg::kUserAgent,
                                       INTERNET_OPEN_TYPE_PRECONFIG,
                                       nullptr, nullptr, 0);
-    if (!session) return res;
-    HINTERNET connect = InternetConnectW(session, u.host.c_str(), u.port, 0, 0,
-                                         INTERNET_SERVICE_HTTP, 0, 0);
+    if (!session) {
+        res.error = LastErrorText();
+        return res;
+    }
+    ApplyTimeouts(session, req.timeout_ms);
+
     HINTERNET request = nullptr;
     do {
-        if (!connect) break;
+        // Hand WinINet the complete URL. Passing a cracked, scheme-less path
+        // here makes it fail with ERROR_INTERNET_UNRECOGNIZED_SCHEME (12006)
+        // for plain http URLs, and would also drop any query string.
         DWORD flags = INTERNET_FLAG_RELOAD | INTERNET_FLAG_NO_COOKIES;
-        if (u.https) flags |= INTERNET_FLAG_SECURE;
-        request = InternetOpenUrlW(connect, u.path.c_str(), nullptr, 0, flags, 0);
-        if (!request) break;
+        request = InternetOpenUrlW(session, req.url.c_str(), nullptr, 0, flags, 0);
+        if (!request) {
+            res.error = LastErrorText();
+            break;
+        }
         DWORD code = 0, size = sizeof(code);
         if (!HttpQueryInfoW(request, HTTP_QUERY_STATUS_CODE | HTTP_QUERY_FLAG_NUMBER,
-                            &code, &size, 0)) break;
+                            &code, &size, 0)) {
+            res.error = LastErrorText();
+            break;
+        }
         res.status = static_cast<int>(code);
 
         DWORD content_len = 0, cl_size = sizeof(content_len);
@@ -66,23 +98,35 @@ Result Send(const Request& req, const ProgressFn& progress) {
                        &content_len, &cl_size, 0);
         uint64_t total = content_len;
         uint64_t done = 0;
-        res.body.reserve(64 * 1024);
+        res.body.reserve(total ? static_cast<size_t>(total) : 64 * 1024);
         uint8_t chunk[65536];
+        uint64_t last_report = 0;
+        bool read_failed = false;
         for (;;) {
             DWORD got = 0;
-            if (!InternetReadFile(request, chunk, sizeof(chunk), &got)) break;
+            if (!InternetReadFile(request, chunk, sizeof(chunk), &got)) {
+                read_failed = true;
+                break;
+            }
             if (got == 0) break;
             res.body.insert(res.body.end(), chunk, chunk + got);
             done += got;
-            if (progress && (done < 4096 || (done % (64 * 1024)) < 65536))
+            // Throttle UI updates; one message per chunk floods the window.
+            uint64_t now = GetTickCount64();
+            if (progress && now - last_report >= 100) {
+                last_report = now;
                 progress(done, total);
+            }
+        }
+        if (read_failed) {
+            res.error = LastErrorText();
+            break;
         }
         if (progress) progress(done, total);
         res.ok = true;
     } while (false);
 
     if (request) InternetCloseHandle(request);
-    if (connect) InternetCloseHandle(connect);
     InternetCloseHandle(session);
     return res;
 }
@@ -106,6 +150,7 @@ Result PostJson(const std::wstring& url, const std::string& body_json) {
     HINTERNET connect = InternetConnectW(session, u.host.c_str(), u.port, 0, 0,
                                          INTERNET_SERVICE_HTTP, 0, 0);
     if (!connect) { InternetCloseHandle(session); return res; }
+    ApplyTimeouts(connect, 30000);
     DWORD flags = INTERNET_FLAG_RELOAD | INTERNET_FLAG_NO_COOKIES;
     if (u.https) flags |= INTERNET_FLAG_SECURE;
     HINTERNET request = HttpOpenRequestW(connect, L"POST", u.path.c_str(), nullptr,

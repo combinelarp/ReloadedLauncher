@@ -35,14 +35,28 @@ int APIENTRY WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
                 try { client::MigrateRootInstall(); } catch (...) {}
             }
             if (!client::Installed()) {
-                client::ProgressFn progress = [](uint64_t, uint64_t) {};
-                client::StatusFn status = [](const std::wstring&) {};
+                // Forward real download progress to the window (this used to be
+                // discarded, which kept the bar at a permanent 0%).
+                client::ProgressFn progress = [](uint64_t done, uint64_t total) {
+                    ui::PostProgress(done, total);
+                };
+                client::StatusFn status = [](const std::wstring& s) { ui::PostStatus(s); };
                 std::wstring err;
-                client::DownloadAndInstall(progress, status, &err);
+                if (!client::DownloadAndInstall(progress, status, &err)) {
+                    ui::PostStatus(err.empty() ? L"Download failed" : err);
+                    ui::PostClose(8000);
+                    return;
+                }
             }
-            // Only open the site once the client is confirmed installed
+            // Only open the site once the client is confirmed installed.
             if (client::Installed()) {
+                ui::PostStatus(L"Starting Blockman GO...");
+                Sleep(600);
                 ShellExecuteW(nullptr, L"open", cfg::kSiteUrl, nullptr, nullptr, SW_SHOW);
+                ui::PostClose(1500);
+            } else {
+                ui::PostStatus(L"Game.exe was not found after extracting");
+                ui::PostClose(8000);
             }
         };
         ui::Run(cfg::kTitle, 500, 330, pipeline);

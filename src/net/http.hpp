@@ -20,6 +20,7 @@ using ProgressFn = std::function<void(uint64_t already, uint64_t total)>;
 struct Result {
     bool ok = false;
     int status = 0;
+    std::wstring error;         // human readable reason when ok is false
     std::vector<uint8_t> body;  // raw response bytes
 };
 
