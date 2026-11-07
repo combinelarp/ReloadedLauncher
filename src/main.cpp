@@ -72,16 +72,20 @@ int APIENTRY WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
     while (!body.empty() && (body.front() == L'/' || body.front() == L':'))
         body.erase(body.begin());
 
+    // GameId:ServerIP:ServerPort - the IP used to be filled with the GameId,
+    // so ScriptSetting got a bogus server address.
     std::wstring game_id, server_ip, server_port;
-    for (size_t i = 0; i < body.size(); ++i) {
-        if (body[i] == L':') {
-            if (server_ip.empty()) {
-                game_id = body.substr(0, i);
-                server_ip = body.substr(0, i);
-            } else {
-                server_port = body.substr(i + 1);
-                break;
-            }
+    size_t p1 = body.find(L':');
+    if (p1 == std::wstring::npos) {
+        game_id = body;
+    } else {
+        game_id = body.substr(0, p1);
+        size_t p2 = body.find(L':', p1 + 1);
+        if (p2 == std::wstring::npos) {
+            server_ip = body.substr(p1 + 1);
+        } else {
+            server_ip = body.substr(p1 + 1, p2 - p1 - 1);
+            server_port = body.substr(p2 + 1);
         }
     }
     if (game_id.empty()) game_id = body;

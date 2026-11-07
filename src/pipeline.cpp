@@ -7,6 +7,7 @@
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#include <shellapi.h>
 #include <vector>
 
 namespace pipeline {
@@ -60,16 +61,32 @@ void RunPipeline(const std::wstring& game_id,
     Sleep(500);
     std::wstring exe;
     if (client::FindGameExe(&exe)) {
-        STARTUPINFOW si = {};
-        si.cb = sizeof(si);
-        si.wShowWindow = SW_SHOW;
-        PROCESS_INFORMATION pi = {};
-        std::vector<wchar_t> cmd(exe.begin(), exe.end());
-        cmd.push_back(L'\0');
-        CreateProcessW(exe.c_str(), cmd.data(), nullptr, nullptr, FALSE, 0,
-                       nullptr, nullptr, &si, &pi);
-        CloseHandle(pi.hProcess);
-        CloseHandle(pi.hThread);
+        std::wstring dir = exe;
+        size_t slash = dir.find_last_of(L"\\/");
+        if (slash != std::wstring::npos) dir.resize(slash);
+
+        // Launch the way Explorer / `start ""` does. ShellExecute gives the
+        // game a proper argv[0] plus its own working directory; the old
+        // CreateProcess call passed an unquoted path, so the game read pieces
+        // of its own executable path as arguments and exited.
+        HINSTANCE launched = ShellExecuteW(nullptr, L"open", exe.c_str(), nullptr,
+                                           dir.c_str(), SW_SHOW);
+        if (reinterpret_cast<INT_PTR>(launched) <= 32) {
+            // Fallback: quote only argv[0], keep the application name separate.
+            std::wstring quoted = L"\"" + exe + L"\"";
+            std::vector<wchar_t> cmd(quoted.begin(), quoted.end());
+            cmd.push_back(L'\0');
+            STARTUPINFOW si = {};
+            si.cb = sizeof(si);
+            PROCESS_INFORMATION pi = {};
+            if (CreateProcessW(exe.c_str(), cmd.data(), nullptr, nullptr, FALSE, 0,
+                               nullptr, dir.c_str(), &si, &pi)) {
+                CloseHandle(pi.hProcess);
+                CloseHandle(pi.hThread);
+            } else {
+                ui::PostStatus(L"Could not start Game.exe");
+            }
+        }
     } else {
         ui::PostStatus(L"Game.exe not found");
     }
