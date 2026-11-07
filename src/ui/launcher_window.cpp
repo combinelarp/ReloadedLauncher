@@ -47,8 +47,16 @@ constexpr COLORREF kText       = RGB(74, 74, 74);
 // the screenshot literally.
 constexpr bool kDrawTopRightSquare = true;
 
-constexpr int kIconSize = 112;  // your own icon, same as the original file
-constexpr int kIconY    = 46;
+// Your own icon, placed exactly where the reference icon is (design pixels:
+// a 101x101 square centered at 210.5, 113.5), drawn square.
+constexpr double kIconDesign = 101.0;
+constexpr double kIconCx = 210.5;
+constexpr double kIconCy = 113.5;
+
+// The reference window has no title bar: the green frame is the window edge.
+// true  = borderless window (drag it anywhere to move; Alt+F4 / taskbar to close)
+// false = normal title bar like before
+constexpr bool kBorderless = true;
 
 struct Impl {
     std::vector<UiMsg> queue;
@@ -148,7 +156,9 @@ void Paint(HWND hwnd, HDC hdc) {
     if (g->icon_bmp) {
         Gdiplus::Graphics g_gfx(mem);
         g_gfx.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBicubic);
-        g_gfx.DrawImage(g->icon_bmp, (w - kIconSize) / 2, kIconY, kIconSize, kIconSize);
+        double sc = (std::min)(w / kDesignW, h / kDesignH);
+        int isz = (int)std::lround(kIconDesign * sc);
+        g_gfx.DrawImage(g->icon_bmp, X(kIconCx) - isz / 2, Y(kIconCy) - isz / 2, isz, isz);
     }
 
     // ---- progress bar: outer rect (80,177)-(321,190) in screenshot pixels ----
@@ -204,6 +214,11 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     switch (msg) {
         case WM_ERASEBKGND:
             return 1;  // everything is painted in Paint(); avoids flicker
+        case WM_NCHITTEST: {
+            LRESULT hit = DefWindowProcW(hwnd, msg, wp, lp);
+            if (kBorderless && hit == HTCLIENT) return HTCAPTION;  // drag anywhere
+            return hit;
+        }
         case WM_PAINT: {
             PAINTSTRUCT ps;
             HDC hdc = BeginPaint(hwnd, &ps);
@@ -345,8 +360,13 @@ void Run(const std::wstring& title, int width, int height,
     wc.lpszClassName = L"ReloadedLauncherClass";
     RegisterClassExW(&wc);
 
+    const DWORD style = kBorderless
+        ? (WS_POPUP | WS_SYSMENU | WS_MINIMIZEBOX)
+        : (WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX);
+    const DWORD exStyle = kBorderless ? WS_EX_APPWINDOW : 0;
+
     RECT rc = {0, 0, width, height};
-    AdjustWindowRect(&rc, WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX, FALSE);
+    AdjustWindowRectEx(&rc, style, FALSE, exStyle);
     int ww = rc.right - rc.left;
     int hh = rc.bottom - rc.top;
     int sw = GetSystemMetrics(SM_CXSCREEN);
@@ -354,8 +374,8 @@ void Run(const std::wstring& title, int width, int height,
     int wx = (sw - ww) / 2;
     int wy = (sh - hh) / 2;
 
-    HWND hwnd = CreateWindowExW(0, L"ReloadedLauncherClass", title.c_str(),
-                                WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
+    HWND hwnd = CreateWindowExW(exStyle, L"ReloadedLauncherClass", title.c_str(),
+                                style,
                                 wx, wy, ww, hh, nullptr, nullptr, hInst, nullptr);
     g->hMain = hwnd;
 
