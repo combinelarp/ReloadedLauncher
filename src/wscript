@@ -1,0 +1,4 @@
+def build(bld):
+    # This allows the main wscript to include this directory
+    # No extra logic needed here for simple source globbing.
+    pass
